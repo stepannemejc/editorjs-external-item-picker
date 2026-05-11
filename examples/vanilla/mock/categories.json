@@ -1,0 +1,14 @@
+[
+  {
+    "id": "books",
+    "label": "Books"
+  },
+  {
+    "id": "courses",
+    "label": "Courses"
+  },
+  {
+    "id": "events",
+    "label": "Events"
+  }
+]

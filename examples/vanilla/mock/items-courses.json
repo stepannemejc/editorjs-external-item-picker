@@ -1,0 +1,10 @@
+[
+  {
+    "id": "typescript-basics",
+    "label": "TypeScript Basics"
+  },
+  {
+    "id": "editorjs-tools",
+    "label": "Building Editor.js Tools"
+  }
+]

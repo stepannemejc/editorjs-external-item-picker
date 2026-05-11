@@ -1,0 +1,52 @@
+{
+  "name": "editorjs-external-item-picker",
+  "version": "0.1.0",
+  "description": "Reusable framework-agnostic Editor.js tool with dependent searchable selects for external items.",
+  "license": "MIT",
+  "author": "",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./dist/style.css": "./dist/style.css",
+    "./style.css": "./dist/style.css"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": [
+    "./dist/style.css"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "example": "vite --host 0.0.0.0 examples/vanilla"
+  },
+  "keywords": [
+    "editorjs",
+    "editor-js",
+    "tool",
+    "select",
+    "typescript"
+  ],
+  "peerDependencies": {
+    "@editorjs/editorjs": "^2.29.0"
+  },
+  "devDependencies": {
+    "@editorjs/editorjs": "^2.29.1",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.3",
+    "vite": "^8.0.12"
+  }
+}
