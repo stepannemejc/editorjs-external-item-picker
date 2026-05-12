@@ -1,6 +1,6 @@
 {
   "name": "editorjs-external-item-link-picker",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Reusable framework-agnostic Editor.js inline tool for dynamic links with dependent searchable selects.",
   "license": "MIT",
   "author": "",

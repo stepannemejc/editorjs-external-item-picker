@@ -32,8 +32,8 @@ const editor = new EditorJS({
       inlineToolbar: true,
       config: {
         endpoints: {
-          categories: '/content/resources',
-          itemsByCategory: '/content/resources/{category}'
+          categories: '/content/resources/',
+          itemsByCategory: '/content/resources/{category}/'
         }
       }
     }
@@ -49,6 +49,36 @@ import DynamicLinkTool, {
   ExternalItemPickerTool
 } from 'editorjs-external-item-link-picker';
 ```
+
+## Usage Inside A Strapi Plugin
+
+When this tool is embedded in a Strapi plugin admin UI, point it at routes exposed by that Strapi plugin:
+
+```ts
+import EditorJS from '@editorjs/editorjs';
+import DynamicLinkTool from '@scope/editorjs-dynamic-link';
+
+const editor = new EditorJS({
+  holder: 'editorjs',
+  inlineToolbar: ['dynamicLink'],
+  tools: {
+    dynamicLink: {
+      class: DynamicLinkTool,
+      inlineToolbar: true,
+      config: {
+        endpoints: {
+          categories: '/content/resources/',
+          itemsByCategory: '/content/resources/{category}/'
+        }
+      }
+    }
+  }
+});
+```
+
+In this setup, Editor.js calls the Strapi plugin route in the browser. The Strapi plugin can then call the core backend server-side. This package never reads `CORE_API_URL`, never reads `process.env`, and never calls the core backend directly.
+
+The package remains standalone: the same endpoint config can target any backend that returns supported response shapes.
 
 ## Static Page Mode
 
@@ -208,13 +238,35 @@ If `dataProvider` is provided, it is used before endpoint configuration.
 ```ts
 config: {
   endpoints: {
-    categories: '/content/resources',
-    itemsByCategory: '/content/resources/{category}'
+    categories: '/content/resources/',
+    itemsByCategory: '/content/resources/{category}/'
   }
 }
 ```
 
 `itemsByCategory` supports `{category}` and `{categoryId}` replacement. If the placeholder is omitted, the tool appends `categoryId` as a query parameter. The item endpoint is not called when `static-page` is selected.
+
+For arbitrary backends, use any browser-reachable endpoint:
+
+```ts
+config: {
+  endpoints: {
+    categories: '/api/linkable-types',
+    itemsByCategory: '/api/linkable-types/{category}/items'
+  }
+}
+```
+
+For mock or demo JSON, point the same config at static files:
+
+```ts
+config: {
+  endpoints: {
+    categories: '/mock/categories.json',
+    itemsByCategory: '/mock/items-{category}.json'
+  }
+}
+```
 
 ## Backend Response Formats
 

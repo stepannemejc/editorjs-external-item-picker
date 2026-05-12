@@ -12,7 +12,7 @@ const editor = new EditorJS({
       config: {
         endpoints: {
           categories: '/mock/categories.json',
-          itemsByCategory: '/mock/items-{categoryId}.json'
+          itemsByCategory: '/mock/items-{category}.json'
         }
       }
     }
