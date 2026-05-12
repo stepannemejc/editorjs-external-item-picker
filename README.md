@@ -1,7 +1,8 @@
 # editorjs-external-item-picker
 
-Reusable framework-agnostic Editor.js block tool with two searchable selects:
-category first, then item options loaded for the selected category.
+Reusable framework-agnostic Editor.js inline tool for creating dynamic links from selected text.
+
+The tool behaves like an inline link tool: select text, click the toolbar button, choose a category and item, and the selected text is wrapped in an anchor with dynamic-link data attributes.
 
 ## Installation
 
@@ -19,33 +20,58 @@ import 'editorjs-external-item-picker/dist/style.css';
 
 ```ts
 import EditorJS from '@editorjs/editorjs';
-import ExternalItemPickerTool from 'editorjs-external-item-picker';
+import DynamicLinkTool from 'editorjs-external-item-picker';
 import 'editorjs-external-item-picker/dist/style.css';
 
 const editor = new EditorJS({
   holder: 'editorjs',
+  inlineToolbar: ['dynamicLink'],
   tools: {
-    externalItem: {
-      class: ExternalItemPickerTool,
+    dynamicLink: {
+      class: DynamicLinkTool,
+      inlineToolbar: true,
       config: {
         endpoints: {
           categories: '/api/categories',
           itemsByCategory: '/api/items/{categoryId}'
-        },
-        required: true
+        }
       }
     }
   }
 });
 ```
 
-The package exports both default and named tool exports:
+The package exports the tool as default and named exports:
 
 ```ts
-import ExternalItemPickerTool, {
-  ExternalItemPickerTool as NamedExternalItemPickerTool
+import DynamicLinkTool, {
+  DynamicLinkTool as NamedDynamicLinkTool,
+  ExternalItemPickerTool
 } from 'editorjs-external-item-picker';
 ```
+
+## Resulting HTML
+
+The inline output is SSR-safe HTML:
+
+```html
+<a
+  href="#"
+  data-dynamic-link="true"
+  data-dynamic-link-category-id="books"
+  data-dynamic-link-category-label="Books"
+  data-dynamic-link-item-id="clean-code"
+  data-dynamic-link-item-label="Clean Code"
+>
+  selected text
+</a>
+```
+
+## Editing And Removing Links
+
+When the cursor or selection is inside an existing dynamic link, the tool detects the anchor, prefills both selects from its data attributes, and updates the existing anchor instead of nesting a new one.
+
+Use the `Unlink` action in the popover to remove the anchor wrapper while preserving the plain text.
 
 ## Usage With Custom Data Provider
 
@@ -74,16 +100,16 @@ const dataProvider: ExternalItemPickerDataProvider = {
 
 ```ts
 tools: {
-  externalItem: {
-    class: ExternalItemPickerTool,
+  dynamicLink: {
+    class: DynamicLinkTool,
+    inlineToolbar: true,
     config: {
       dataProvider,
       labels: {
-        categoryPlaceholder: 'Choose category',
-        itemPlaceholder: 'Choose item',
+        categoryPlaceholder: 'Choose type',
+        itemPlaceholder: 'Choose target',
         searchPlaceholder: 'Search'
-      },
-      required: false
+      }
     }
   }
 }
@@ -103,19 +129,6 @@ config: {
 ```
 
 `itemsByCategory` supports `{categoryId}` replacement. If the placeholder is omitted, the tool appends `categoryId` as a query parameter.
-
-## Saved Data Shape
-
-```json
-{
-  "categoryId": "books",
-  "categoryLabel": "Books",
-  "itemId": "clean-code",
-  "itemLabel": "Clean Code"
-}
-```
-
-Existing saved data prefills both selects. Changing category clears the selected item.
 
 ## Backend Response Formats
 

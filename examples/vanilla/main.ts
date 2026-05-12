@@ -4,27 +4,25 @@ import '../../src/styles.css';
 
 const editor = new EditorJS({
   holder: 'editorjs',
+  inlineToolbar: ['dynamicLink'],
   tools: {
-    externalItem: {
+    dynamicLink: {
       class: ExternalItemPickerTool,
+      inlineToolbar: true,
       config: {
         endpoints: {
           categories: '/mock/categories.json',
           itemsByCategory: '/mock/items-{categoryId}.json'
-        },
-        required: true
+        }
       }
     }
   },
   data: {
     blocks: [
       {
-        type: 'externalItem',
+        type: 'paragraph',
         data: {
-          categoryId: 'books',
-          categoryLabel: 'Books',
-          itemId: 'clean-code',
-          itemLabel: 'Clean Code'
+          text: 'Select text in this paragraph and use the dynamic link inline tool.'
         }
       }
     ]

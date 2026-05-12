@@ -90,6 +90,10 @@ class SearchableSelect {
     this.input.value = '';
   }
 
+  focus(): void {
+    this.input.focus();
+  }
+
   private bindEvents(): void {
     this.input.addEventListener('focus', () => {
       this.open();
@@ -165,6 +169,7 @@ class SearchableSelect {
       button.type = 'button';
       button.className = `${this.config.classPrefix}__option`;
       button.textContent = option.label;
+      button.addEventListener('mousedown', (event) => event.preventDefault());
       button.addEventListener('click', () => {
         this.setSelected(option);
         this.config.onChange(option);
@@ -176,6 +181,7 @@ class SearchableSelect {
 }
 
 const CLASS_PREFIX = 'external-item-picker';
+const DYNAMIC_LINK_SELECTOR = 'a[data-dynamic-link="true"]';
 
 const defaultLabels = {
   categoryPlaceholder: 'Select category',
@@ -187,31 +193,36 @@ export class ExternalItemPickerTool {
   private readonly dataProvider?: ExternalItemPickerDataProvider;
   private readonly config: ExternalItemPickerConfig;
   private readonly readOnly: boolean;
-  private data: ExternalItemPickerData;
-  private wrapper?: HTMLDivElement;
+  private button?: HTMLButtonElement;
+  private popover?: HTMLDivElement;
   private categorySelect?: SearchableSelect;
   private itemSelect?: SearchableSelect;
+  private applyButton?: HTMLButtonElement;
+  private unlinkButton?: HTMLButtonElement;
   private errorElement?: HTMLDivElement;
+  private activeAnchor: HTMLAnchorElement | null = null;
+  private selectedRange: Range | null = null;
+  private data: ExternalItemPickerData = {};
   private categoriesLoaded = false;
   private itemsLoadedForCategoryId?: string;
+  private readonly handleDocumentMouseDown = (event: MouseEvent): void => {
+    const target = event.target as Node | null;
 
-  constructor({ data, config, readOnly }: EditorJsToolConstructorArgs) {
+    if (!target || !this.popover || this.popover.contains(target) || this.button?.contains(target)) {
+      return;
+    }
+
+    this.closePopover();
+  };
+
+  constructor({ config, readOnly }: EditorJsToolConstructorArgs) {
     this.config = config ?? {};
     this.readOnly = Boolean(readOnly);
-    this.data = {
-      categoryId: data?.categoryId ?? '',
-      categoryLabel: data?.categoryLabel ?? '',
-      itemId: data?.itemId ?? '',
-      itemLabel: data?.itemLabel ?? ''
-    };
     this.dataProvider = this.resolveDataProvider(this.config);
   }
 
-  static get toolbox(): { title: string; icon: string } {
-    return {
-      title: 'External item',
-      icon: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M4 6.5h16M4 12h16M4 17.5h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>'
-    };
+  static get isInline(): boolean {
+    return true;
   }
 
   static get isReadOnlySupported(): boolean {
@@ -219,16 +230,69 @@ export class ExternalItemPickerTool {
   }
 
   render(): HTMLElement {
+    this.button = document.createElement('button');
+    this.button.type = 'button';
+    this.button.className = `${CLASS_PREFIX}__toolbar-button`;
+    this.button.innerHTML =
+      '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg"><path d="M10.5 13.5 13.5 10.5M8.75 7.75l-1 .02a4 4 0 0 0-2.73 6.88l.33.33a4 4 0 0 0 5.66 0l1.24-1.23M11.75 10.25l1.24-1.23a4 4 0 0 1 5.66 0l.33.33a4 4 0 0 1-2.73 6.88l-1 .02" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+    this.button.title = 'Dynamic link';
+
+    return this.button;
+  }
+
+  surround(range: Range): void {
+    if (this.readOnly) {
+      return;
+    }
+
+    const anchor = this.findDynamicLinkForRange(range);
+
+    if (!anchor && range.collapsed) {
+      this.clear();
+      return;
+    }
+
+    this.selectedRange = range.cloneRange();
+    this.activeAnchor = anchor;
+    this.data = anchor ? this.readDataFromAnchor(anchor) : {};
+    this.openPopover(range);
+  }
+
+  checkState(): boolean {
+    const selection = window.getSelection();
+    const anchor = selection?.anchorNode ? this.findDynamicLink(selection.anchorNode) : null;
+    this.activeAnchor = anchor;
+    this.button?.classList.toggle(`${CLASS_PREFIX}__toolbar-button--active`, Boolean(anchor));
+
+    return Boolean(anchor);
+  }
+
+  clear(): void {
+    this.closePopover();
+    this.button?.classList.remove(`${CLASS_PREFIX}__toolbar-button--active`);
+    this.activeAnchor = null;
+    this.selectedRange = null;
+    this.data = {};
+  }
+
+  private openPopover(range: Range): void {
+    this.closePopover();
+
     const labels = {
       ...defaultLabels,
       ...this.config.labels
     };
 
-    this.wrapper = document.createElement('div');
-    this.wrapper.className = CLASS_PREFIX;
+    this.popover = document.createElement('div');
+    this.popover.className = `${CLASS_PREFIX} ${CLASS_PREFIX}__popover`;
+    this.popover.addEventListener('mousedown', (event) => event.stopPropagation());
+    this.popover.addEventListener('click', (event) => event.stopPropagation());
 
     const categoryField = this.createField(labels.categoryPlaceholder);
     const itemField = this.createField(labels.itemPlaceholder);
+    const actions = document.createElement('div');
+    actions.className = `${CLASS_PREFIX}__actions`;
+
     this.errorElement = document.createElement('div');
     this.errorElement.className = `${CLASS_PREFIX}__error`;
     this.errorElement.hidden = true;
@@ -237,7 +301,6 @@ export class ExternalItemPickerTool {
       classPrefix: CLASS_PREFIX,
       placeholder: labels.categoryPlaceholder,
       searchPlaceholder: labels.searchPlaceholder,
-      disabled: false,
       readOnly: this.readOnly,
       onOpen: () => void this.loadCategories(),
       onChange: (option) => this.handleCategoryChange(option)
@@ -252,6 +315,19 @@ export class ExternalItemPickerTool {
       onOpen: () => void this.loadItemsForCurrentCategory(),
       onChange: (option) => this.handleItemChange(option)
     });
+
+    this.applyButton = document.createElement('button');
+    this.applyButton.type = 'button';
+    this.applyButton.className = `${CLASS_PREFIX}__action ${CLASS_PREFIX}__action--primary`;
+    this.applyButton.textContent = 'Apply';
+    this.applyButton.addEventListener('click', () => this.applyLink());
+
+    this.unlinkButton = document.createElement('button');
+    this.unlinkButton.type = 'button';
+    this.unlinkButton.className = `${CLASS_PREFIX}__action`;
+    this.unlinkButton.textContent = 'Unlink';
+    this.unlinkButton.hidden = !this.activeAnchor;
+    this.unlinkButton.addEventListener('click', () => this.unlink());
 
     if (this.data.categoryId && this.data.categoryLabel) {
       this.categorySelect.setSelected({
@@ -269,30 +345,151 @@ export class ExternalItemPickerTool {
 
     categoryField.append(this.categorySelect.element);
     itemField.append(this.itemSelect.element);
-    this.wrapper.append(categoryField, itemField, this.errorElement);
+    actions.append(this.unlinkButton, this.applyButton);
+    this.popover.append(categoryField, itemField, this.errorElement, actions);
+    document.body.append(this.popover);
+    document.addEventListener('mousedown', this.handleDocumentMouseDown);
+    this.positionPopover(range);
+    this.syncApplyButton();
+    void this.loadCategories();
 
     if (this.data.categoryId) {
       void this.loadItemsForCurrentCategory();
     }
 
-    return this.wrapper;
+    this.categorySelect.focus();
   }
 
-  save(): ExternalItemPickerData {
+  private closePopover(): void {
+    document.removeEventListener('mousedown', this.handleDocumentMouseDown);
+    this.popover?.remove();
+    this.popover = undefined;
+    this.categorySelect = undefined;
+    this.itemSelect = undefined;
+    this.applyButton = undefined;
+    this.unlinkButton = undefined;
+    this.errorElement = undefined;
+    this.categoriesLoaded = false;
+    this.itemsLoadedForCategoryId = undefined;
+  }
+
+  private positionPopover(range: Range): void {
+    if (!this.popover) {
+      return;
+    }
+
+    const rect = range.getBoundingClientRect();
+    const fallbackRect = this.button?.getBoundingClientRect();
+    const sourceRect = rect.width || rect.height ? rect : fallbackRect;
+
+    if (!sourceRect) {
+      return;
+    }
+
+    const width = 320;
+    const left = Math.min(Math.max(8, sourceRect.left + window.scrollX), window.scrollX + window.innerWidth - width - 8);
+    const top = sourceRect.bottom + window.scrollY + 8;
+
+    this.popover.style.left = `${left}px`;
+    this.popover.style.top = `${top}px`;
+    this.popover.style.width = `${width}px`;
+  }
+
+  private applyLink(): void {
+    if (!this.data.categoryId || !this.data.itemId) {
+      this.showError('Choose a category and item before applying the link.');
+      return;
+    }
+
+    const anchor = this.activeAnchor ?? this.createAnchorFromRange();
+
+    if (!anchor) {
+      this.showError('Select text before applying the link.');
+      return;
+    }
+
+    this.writeDataToAnchor(anchor);
+    this.closePopover();
+    this.button?.classList.add(`${CLASS_PREFIX}__toolbar-button--active`);
+  }
+
+  private createAnchorFromRange(): HTMLAnchorElement | null {
+    if (!this.selectedRange || this.selectedRange.collapsed) {
+      return null;
+    }
+
+    const anchor = document.createElement('a');
+    const contents = this.selectedRange.extractContents();
+    anchor.append(contents);
+    this.selectedRange.insertNode(anchor);
+
+    return anchor;
+  }
+
+  private unlink(): void {
+    if (!this.activeAnchor) {
+      this.closePopover();
+      return;
+    }
+
+    const parent = this.activeAnchor.parentNode;
+
+    if (!parent) {
+      this.closePopover();
+      return;
+    }
+
+    while (this.activeAnchor.firstChild) {
+      parent.insertBefore(this.activeAnchor.firstChild, this.activeAnchor);
+    }
+
+    parent.removeChild(this.activeAnchor);
+    parent.normalize();
+    this.clear();
+  }
+
+  private findDynamicLink(node: Node | null): HTMLAnchorElement | null {
+    let current: Node | null = node;
+
+    if (current?.nodeType === Node.TEXT_NODE) {
+      current = current.parentNode;
+    }
+
+    while (current && current instanceof HTMLElement) {
+      if (current.matches(DYNAMIC_LINK_SELECTOR)) {
+        return current as HTMLAnchorElement;
+      }
+
+      current = current.parentElement;
+    }
+
+    return null;
+  }
+
+  private findDynamicLinkForRange(range: Range): HTMLAnchorElement | null {
+    return (
+      this.findDynamicLink(range.commonAncestorContainer) ??
+      this.findDynamicLink(range.startContainer) ??
+      this.findDynamicLink(range.endContainer)
+    );
+  }
+
+  private readDataFromAnchor(anchor: HTMLAnchorElement): ExternalItemPickerData {
     return {
-      categoryId: this.data.categoryId || '',
-      categoryLabel: this.data.categoryLabel || '',
-      itemId: this.data.itemId || '',
-      itemLabel: this.data.itemLabel || ''
+      categoryId: anchor.dataset.dynamicLinkCategoryId ?? '',
+      categoryLabel: anchor.dataset.dynamicLinkCategoryLabel ?? '',
+      itemId: anchor.dataset.dynamicLinkItemId ?? '',
+      itemLabel: anchor.dataset.dynamicLinkItemLabel ?? ''
     };
   }
 
-  validate(savedData: ExternalItemPickerData): boolean {
-    if (!this.config.required) {
-      return true;
-    }
-
-    return Boolean(savedData.categoryId && savedData.itemId);
+  private writeDataToAnchor(anchor: HTMLAnchorElement): void {
+    anchor.href = '#';
+    anchor.dataset.dynamicLink = 'true';
+    anchor.dataset.dynamicLinkCategoryId = this.data.categoryId ?? '';
+    anchor.dataset.dynamicLinkCategoryLabel = this.data.categoryLabel ?? '';
+    anchor.dataset.dynamicLinkItemId = this.data.itemId ?? '';
+    anchor.dataset.dynamicLinkItemLabel = this.data.itemLabel ?? '';
   }
 
   private resolveDataProvider(config: ExternalItemPickerConfig): ExternalItemPickerDataProvider | undefined {
@@ -385,11 +582,22 @@ export class ExternalItemPickerTool {
       this.itemSelect?.setOptions([]);
       this.itemSelect?.setDisabled(!this.data.categoryId);
     }
+
+    this.syncApplyButton();
   }
 
   private handleItemChange(option: ExternalItemPickerOption | null): void {
     this.data.itemId = option?.id ?? '';
     this.data.itemLabel = option?.label ?? '';
+    this.syncApplyButton();
+  }
+
+  private syncApplyButton(): void {
+    if (!this.applyButton) {
+      return;
+    }
+
+    this.applyButton.disabled = !this.data.categoryId || !this.data.itemId;
   }
 
   private showError(message: string): void {
@@ -410,5 +618,7 @@ export class ExternalItemPickerTool {
     this.errorElement.hidden = true;
   }
 }
+
+export const DynamicLinkTool = ExternalItemPickerTool;
 
 export default ExternalItemPickerTool;

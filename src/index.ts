@@ -1,4 +1,4 @@
-export { ExternalItemPickerTool, default } from './tool/ExternalItemPickerTool';
+export { DynamicLinkTool, ExternalItemPickerTool, default } from './tool/ExternalItemPickerTool';
 export { createFetchDataProvider } from './services/createFetchDataProvider';
 export { normalizeOptions } from './services/normalizeOptions';
 export type {
