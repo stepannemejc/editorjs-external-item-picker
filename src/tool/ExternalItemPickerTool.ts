@@ -20,9 +20,9 @@ interface SearchableSelectOptions {
 
 class SearchableSelect {
   public readonly element: HTMLDivElement;
+  public readonly dropdownElement: HTMLDivElement;
 
   private readonly input: HTMLInputElement;
-  private readonly dropdown: HTMLDivElement;
   private readonly optionsList: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly config: SearchableSelectOptions;
@@ -44,9 +44,9 @@ class SearchableSelect {
     this.input.autocomplete = 'off';
     this.input.disabled = this.disabled || Boolean(config.readOnly);
 
-    this.dropdown = document.createElement('div');
-    this.dropdown.className = `${config.classPrefix}__dropdown`;
-    this.dropdown.hidden = true;
+    this.dropdownElement = document.createElement('div');
+    this.dropdownElement.className = `${config.classPrefix}__dropdown`;
+    this.dropdownElement.hidden = true;
 
     this.status = document.createElement('div');
     this.status.className = `${config.classPrefix}__status`;
@@ -54,8 +54,8 @@ class SearchableSelect {
     this.optionsList = document.createElement('div');
     this.optionsList.className = `${config.classPrefix}__options`;
 
-    this.dropdown.append(this.status, this.optionsList);
-    this.element.append(this.input, this.dropdown);
+    this.dropdownElement.append(this.status, this.optionsList);
+    this.element.append(this.input, this.dropdownElement);
     this.bindEvents();
     this.setDisabled(this.disabled);
   }
@@ -130,7 +130,7 @@ class SearchableSelect {
     }
 
     this.isOpen = true;
-    this.dropdown.hidden = false;
+    this.dropdownElement.hidden = false;
     this.input.placeholder = this.config.searchPlaceholder;
     this.config.onOpen();
     this.renderOptions();
@@ -138,7 +138,7 @@ class SearchableSelect {
 
   private close(): void {
     this.isOpen = false;
-    this.dropdown.hidden = true;
+    this.dropdownElement.hidden = true;
     this.input.placeholder = this.config.placeholder;
 
     if (this.selected) {
@@ -215,14 +215,20 @@ export class ExternalItemPickerTool {
   private data: DynamicLinkData = this.createEmptyData();
   private categoriesLoaded = false;
   private itemsLoadedForCategoryId?: string;
-  private readonly handleDocumentMouseDown = (event: MouseEvent): void => {
+  private readonly handleDocumentPointerDown = (event: PointerEvent): void => {
     const target = event.target as Node | null;
 
-    if (!target || !this.popover || this.popover.contains(target) || this.button?.contains(target)) {
+    if (!target || this.isInternalInteractionTarget(target)) {
       return;
     }
 
     this.closePopover();
+  };
+  private readonly handleDocumentKeyDown = (event: KeyboardEvent): void => {
+    if (event.key === 'Escape' && this.popover) {
+      event.stopPropagation();
+      this.closePopover();
+    }
   };
 
   constructor({ config, readOnly }: EditorJsToolConstructorArgs) {
@@ -278,6 +284,10 @@ export class ExternalItemPickerTool {
   }
 
   clear(): void {
+    if (this.isFocusInsidePopover()) {
+      return;
+    }
+
     this.closePopover();
     this.button?.classList.remove(`${CLASS_PREFIX}__toolbar-button--active`);
     this.activeAnchor = null;
@@ -295,8 +305,7 @@ export class ExternalItemPickerTool {
 
     this.popover = document.createElement('div');
     this.popover.className = `${CLASS_PREFIX} ${CLASS_PREFIX}__popover`;
-    this.popover.addEventListener('mousedown', (event) => event.stopPropagation());
-    this.popover.addEventListener('click', (event) => event.stopPropagation());
+    this.bindPopoverEventBoundary(this.popover);
 
     const categoryField = this.createField(labels.categoryPlaceholder);
     this.itemField = this.createField(labels.itemPlaceholder);
@@ -360,7 +369,8 @@ export class ExternalItemPickerTool {
     actions.append(this.unlinkButton, this.applyButton);
     this.popover.append(categoryField, this.itemField, this.pathnameField, queryParamsField, this.errorElement, actions);
     document.body.append(this.popover);
-    document.addEventListener('mousedown', this.handleDocumentMouseDown);
+    document.addEventListener('pointerdown', this.handleDocumentPointerDown);
+    document.addEventListener('keydown', this.handleDocumentKeyDown);
     this.positionPopover(range);
     this.syncApplyButton();
     this.syncModeUi();
@@ -383,7 +393,8 @@ export class ExternalItemPickerTool {
   }
 
   private closePopover(): void {
-    document.removeEventListener('mousedown', this.handleDocumentMouseDown);
+    document.removeEventListener('pointerdown', this.handleDocumentPointerDown);
+    document.removeEventListener('keydown', this.handleDocumentKeyDown);
     this.popover?.remove();
     this.popover = undefined;
     this.categorySelect = undefined;
@@ -397,6 +408,49 @@ export class ExternalItemPickerTool {
     this.errorElement = undefined;
     this.categoriesLoaded = false;
     this.itemsLoadedForCategoryId = undefined;
+  }
+
+  private bindPopoverEventBoundary(popover: HTMLDivElement): void {
+    const stopPropagation = (event: Event): void => {
+      event.stopPropagation();
+    };
+
+    popover.addEventListener('pointerdown', stopPropagation);
+    popover.addEventListener('mousedown', stopPropagation);
+    popover.addEventListener('click', stopPropagation);
+    popover.addEventListener('focusin', stopPropagation);
+  }
+
+  private isInternalInteractionTarget(target: Node): boolean {
+    return Boolean(
+      this.popover?.contains(target) ||
+        this.button?.contains(target) ||
+        this.categorySelect?.element.contains(target) ||
+        this.categorySelect?.dropdownElement.contains(target) ||
+        this.itemSelect?.element.contains(target) ||
+        this.itemSelect?.dropdownElement.contains(target)
+    );
+  }
+
+  private isFocusInsidePopover(): boolean {
+    const activeElement = document.activeElement;
+
+    return Boolean(activeElement && this.popover?.contains(activeElement));
+  }
+
+  private restoreSavedSelection(): void {
+    if (!this.selectedRange || this.activeAnchor) {
+      return;
+    }
+
+    const selection = window.getSelection();
+
+    if (!selection) {
+      return;
+    }
+
+    selection.removeAllRanges();
+    selection.addRange(this.selectedRange);
   }
 
   private positionPopover(range: Range): void {
@@ -438,6 +492,8 @@ export class ExternalItemPickerTool {
       this.showError('Choose a category and item before applying the link.');
       return;
     }
+
+    this.restoreSavedSelection();
 
     const anchor = this.activeAnchor ?? this.createAnchorFromRange();
 

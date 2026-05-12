@@ -139,15 +139,15 @@ var SearchableSelect = class {
     this.input.placeholder = config.placeholder;
     this.input.autocomplete = "off";
     this.input.disabled = this.disabled || Boolean(config.readOnly);
-    this.dropdown = document.createElement("div");
-    this.dropdown.className = `${config.classPrefix}__dropdown`;
-    this.dropdown.hidden = true;
+    this.dropdownElement = document.createElement("div");
+    this.dropdownElement.className = `${config.classPrefix}__dropdown`;
+    this.dropdownElement.hidden = true;
     this.status = document.createElement("div");
     this.status.className = `${config.classPrefix}__status`;
     this.optionsList = document.createElement("div");
     this.optionsList.className = `${config.classPrefix}__options`;
-    this.dropdown.append(this.status, this.optionsList);
-    this.element.append(this.input, this.dropdown);
+    this.dropdownElement.append(this.status, this.optionsList);
+    this.element.append(this.input, this.dropdownElement);
     this.bindEvents();
     this.setDisabled(this.disabled);
   }
@@ -208,14 +208,14 @@ var SearchableSelect = class {
       return;
     }
     this.isOpen = true;
-    this.dropdown.hidden = false;
+    this.dropdownElement.hidden = false;
     this.input.placeholder = this.config.searchPlaceholder;
     this.config.onOpen();
     this.renderOptions();
   }
   close() {
     this.isOpen = false;
-    this.dropdown.hidden = true;
+    this.dropdownElement.hidden = true;
     this.input.placeholder = this.config.placeholder;
     if (this.selected) {
       this.input.value = this.selected.label;
@@ -268,12 +268,18 @@ var ExternalItemPickerTool = class {
     this.selectedRange = null;
     this.data = this.createEmptyData();
     this.categoriesLoaded = false;
-    this.handleDocumentMouseDown = (event) => {
+    this.handleDocumentPointerDown = (event) => {
       const target = event.target;
-      if (!target || !this.popover || this.popover.contains(target) || this.button?.contains(target)) {
+      if (!target || this.isInternalInteractionTarget(target)) {
         return;
       }
       this.closePopover();
+    };
+    this.handleDocumentKeyDown = (event) => {
+      if (event.key === "Escape" && this.popover) {
+        event.stopPropagation();
+        this.closePopover();
+      }
     };
     this.config = config ?? {};
     this.readOnly = Boolean(readOnly);
@@ -315,6 +321,9 @@ var ExternalItemPickerTool = class {
     return Boolean(anchor);
   }
   clear() {
+    if (this.isFocusInsidePopover()) {
+      return;
+    }
     this.closePopover();
     this.button?.classList.remove(`${CLASS_PREFIX}__toolbar-button--active`);
     this.activeAnchor = null;
@@ -329,8 +338,7 @@ var ExternalItemPickerTool = class {
     };
     this.popover = document.createElement("div");
     this.popover.className = `${CLASS_PREFIX} ${CLASS_PREFIX}__popover`;
-    this.popover.addEventListener("mousedown", (event) => event.stopPropagation());
-    this.popover.addEventListener("click", (event) => event.stopPropagation());
+    this.bindPopoverEventBoundary(this.popover);
     const categoryField = this.createField(labels.categoryPlaceholder);
     this.itemField = this.createField(labels.itemPlaceholder);
     this.pathnameField = this.createPathnameField();
@@ -385,7 +393,8 @@ var ExternalItemPickerTool = class {
     actions.append(this.unlinkButton, this.applyButton);
     this.popover.append(categoryField, this.itemField, this.pathnameField, queryParamsField, this.errorElement, actions);
     document.body.append(this.popover);
-    document.addEventListener("mousedown", this.handleDocumentMouseDown);
+    document.addEventListener("pointerdown", this.handleDocumentPointerDown);
+    document.addEventListener("keydown", this.handleDocumentKeyDown);
     this.positionPopover(range);
     this.syncApplyButton();
     this.syncModeUi();
@@ -404,7 +413,8 @@ var ExternalItemPickerTool = class {
     };
   }
   closePopover() {
-    document.removeEventListener("mousedown", this.handleDocumentMouseDown);
+    document.removeEventListener("pointerdown", this.handleDocumentPointerDown);
+    document.removeEventListener("keydown", this.handleDocumentKeyDown);
     this.popover?.remove();
     this.popover = void 0;
     this.categorySelect = void 0;
@@ -418,6 +428,35 @@ var ExternalItemPickerTool = class {
     this.errorElement = void 0;
     this.categoriesLoaded = false;
     this.itemsLoadedForCategoryId = void 0;
+  }
+  bindPopoverEventBoundary(popover) {
+    const stopPropagation = (event) => {
+      event.stopPropagation();
+    };
+    popover.addEventListener("pointerdown", stopPropagation);
+    popover.addEventListener("mousedown", stopPropagation);
+    popover.addEventListener("click", stopPropagation);
+    popover.addEventListener("focusin", stopPropagation);
+  }
+  isInternalInteractionTarget(target) {
+    return Boolean(
+      this.popover?.contains(target) || this.button?.contains(target) || this.categorySelect?.element.contains(target) || this.categorySelect?.dropdownElement.contains(target) || this.itemSelect?.element.contains(target) || this.itemSelect?.dropdownElement.contains(target)
+    );
+  }
+  isFocusInsidePopover() {
+    const activeElement = document.activeElement;
+    return Boolean(activeElement && this.popover?.contains(activeElement));
+  }
+  restoreSavedSelection() {
+    if (!this.selectedRange || this.activeAnchor) {
+      return;
+    }
+    const selection = window.getSelection();
+    if (!selection) {
+      return;
+    }
+    selection.removeAllRanges();
+    selection.addRange(this.selectedRange);
   }
   positionPopover(range) {
     if (!this.popover) {
@@ -450,6 +489,7 @@ var ExternalItemPickerTool = class {
       this.showError("Choose a category and item before applying the link.");
       return;
     }
+    this.restoreSavedSelection();
     const anchor = this.activeAnchor ?? this.createAnchorFromRange();
     if (!anchor) {
       this.showError("Select text before applying the link.");

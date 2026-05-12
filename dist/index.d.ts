@@ -66,7 +66,8 @@ declare class ExternalItemPickerTool {
     private data;
     private categoriesLoaded;
     private itemsLoadedForCategoryId?;
-    private readonly handleDocumentMouseDown;
+    private readonly handleDocumentPointerDown;
+    private readonly handleDocumentKeyDown;
     constructor({ config, readOnly }: EditorJsToolConstructorArgs);
     static get isInline(): boolean;
     static get isReadOnlySupported(): boolean;
@@ -77,6 +78,10 @@ declare class ExternalItemPickerTool {
     private openPopover;
     private createEmptyData;
     private closePopover;
+    private bindPopoverEventBoundary;
+    private isInternalInteractionTarget;
+    private isFocusInsidePopover;
+    private restoreSavedSelection;
     private positionPopover;
     private applyLink;
     private createAnchorFromRange;
