@@ -1,20 +1,29 @@
-interface ExternalItemPickerOption {
+interface DynamicLinkOption {
     id: string;
     label: string;
+    pathname?: string;
+    params?: Record<string, string>;
     raw?: unknown;
 }
-interface ExternalItemPickerData {
-    categoryId?: string;
+interface DynamicLinkQueryParam {
+    key: string;
+    value: string;
+}
+interface DynamicLinkData {
+    categoryId: string;
     categoryLabel?: string;
-    itemId?: string;
-    itemLabel?: string;
+    itemId?: string | null;
+    itemLabel?: string | null;
+    pathname?: string | null;
+    params?: Record<string, string>;
+    queryParams?: DynamicLinkQueryParam[];
 }
-interface ExternalItemPickerDataProvider {
-    getCategories: () => Promise<ExternalItemPickerOption[]>;
-    getItemsByCategory: (categoryId: string) => Promise<ExternalItemPickerOption[]>;
+interface DynamicLinkDataProvider {
+    getCategories: () => Promise<DynamicLinkOption[]>;
+    getItemsByCategory: (categoryId: string) => Promise<DynamicLinkOption[]>;
 }
-interface ExternalItemPickerConfig {
-    dataProvider?: ExternalItemPickerDataProvider;
+interface DynamicLinkConfig {
+    dataProvider?: DynamicLinkDataProvider;
     endpoints?: {
         categories?: string;
         itemsByCategory?: string;
@@ -26,10 +35,14 @@ interface ExternalItemPickerConfig {
     };
     required?: boolean;
 }
+type ExternalItemPickerOption = DynamicLinkOption;
+type ExternalItemPickerData = DynamicLinkData;
+type ExternalItemPickerDataProvider = DynamicLinkDataProvider;
+type ExternalItemPickerConfig = DynamicLinkConfig;
 interface EditorJsToolConstructorArgs {
-    data?: ExternalItemPickerData;
+    data?: DynamicLinkData;
     api?: unknown;
-    config?: ExternalItemPickerConfig;
+    config?: DynamicLinkConfig;
     readOnly?: boolean;
 }
 
@@ -41,6 +54,10 @@ declare class ExternalItemPickerTool {
     private popover?;
     private categorySelect?;
     private itemSelect?;
+    private itemField?;
+    private pathnameField?;
+    private pathnameInput?;
+    private queryParamsList?;
     private applyButton?;
     private unlinkButton?;
     private errorElement?;
@@ -58,6 +75,7 @@ declare class ExternalItemPickerTool {
     checkState(): boolean;
     clear(): void;
     private openPopover;
+    private createEmptyData;
     private closePopover;
     private positionPopover;
     private applyLink;
@@ -69,11 +87,22 @@ declare class ExternalItemPickerTool {
     private writeDataToAnchor;
     private resolveDataProvider;
     private createField;
+    private createPathnameField;
+    private createQueryParamsField;
     private loadCategories;
     private loadItemsForCurrentCategory;
     private handleCategoryChange;
     private handleItemChange;
     private syncApplyButton;
+    private syncModeUi;
+    private isStaticPageSelected;
+    private isValidPathname;
+    private withStaticPageOption;
+    private parseQueryParams;
+    private parseParams;
+    private renderQueryParamRows;
+    private addQueryParamRow;
+    private getQueryParamsFromRows;
     private showError;
     private clearError;
 }
@@ -83,4 +112,4 @@ declare const createFetchDataProvider: (endpoints: NonNullable<ExternalItemPicke
 
 declare const normalizeOptions: (payload: unknown) => ExternalItemPickerOption[];
 
-export { DynamicLinkTool, type ExternalItemPickerConfig, type ExternalItemPickerData, type ExternalItemPickerDataProvider, type ExternalItemPickerOption, ExternalItemPickerTool, createFetchDataProvider, ExternalItemPickerTool as default, normalizeOptions };
+export { type DynamicLinkConfig, type DynamicLinkData, type DynamicLinkDataProvider, type DynamicLinkOption, type DynamicLinkQueryParam, DynamicLinkTool, type ExternalItemPickerConfig, type ExternalItemPickerData, type ExternalItemPickerDataProvider, type ExternalItemPickerOption, ExternalItemPickerTool, createFetchDataProvider, ExternalItemPickerTool as default, normalizeOptions };

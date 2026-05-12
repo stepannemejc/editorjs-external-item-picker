@@ -22,6 +22,10 @@ const createItemsUrl = (template: string, categoryId: string): string => {
     return template.split('{categoryId}').join(encodedCategoryId);
   }
 
+  if (template.includes('{category}')) {
+    return template.split('{category}').join(encodedCategoryId);
+  }
+
   const separator = template.includes('?') ? '&' : '?';
   return `${template}${separator}categoryId=${encodedCategoryId}`;
 };

@@ -31,15 +31,41 @@ const unwrapCollection = (payload: unknown): unknown[] => {
     return payload.data;
   }
 
+  if (isRecord(payload.data)) {
+    return Object.values(payload.data);
+  }
+
   if (Array.isArray(payload.items)) {
     return payload.items;
+  }
+
+  if (isRecord(payload.items)) {
+    return Object.values(payload.items);
   }
 
   if (Array.isArray(payload.results)) {
     return payload.results;
   }
 
-  return [];
+  if (isRecord(payload.results)) {
+    return Object.values(payload.results);
+  }
+
+  return Object.values(payload);
+};
+
+const normalizeStringRecord = (value: unknown): Record<string, string> | undefined => {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  return Object.entries(value).reduce<Record<string, string>>((params, [key, entryValue]) => {
+    if (typeof entryValue === 'string' || typeof entryValue === 'number' || typeof entryValue === 'boolean') {
+      params[key] = String(entryValue);
+    }
+
+    return params;
+  }, {});
 };
 
 export const normalizeOptions = (payload: unknown): ExternalItemPickerOption[] => {
@@ -71,6 +97,8 @@ export const normalizeOptions = (payload: unknown): ExternalItemPickerOption[] =
       return {
         id,
         label,
+        pathname: firstStringLike(source, ['pathname', 'path']),
+        params: normalizeStringRecord(source.params),
         raw: entry
       };
     })

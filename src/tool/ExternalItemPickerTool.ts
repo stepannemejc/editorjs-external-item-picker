@@ -1,9 +1,10 @@
 import type {
+  DynamicLinkConfig,
+  DynamicLinkData,
+  DynamicLinkDataProvider,
+  DynamicLinkOption,
+  DynamicLinkQueryParam,
   EditorJsToolConstructorArgs,
-  ExternalItemPickerConfig,
-  ExternalItemPickerData,
-  ExternalItemPickerDataProvider,
-  ExternalItemPickerOption
 } from '../types';
 import { createFetchDataProvider } from '../services/createFetchDataProvider';
 
@@ -14,7 +15,7 @@ interface SearchableSelectOptions {
   disabled?: boolean;
   readOnly?: boolean;
   onOpen: () => void;
-  onChange: (option: ExternalItemPickerOption | null) => void;
+  onChange: (option: DynamicLinkOption | null) => void;
 }
 
 class SearchableSelect {
@@ -25,8 +26,8 @@ class SearchableSelect {
   private readonly optionsList: HTMLDivElement;
   private readonly status: HTMLDivElement;
   private readonly config: SearchableSelectOptions;
-  private options: ExternalItemPickerOption[] = [];
-  private selected: ExternalItemPickerOption | null = null;
+  private options: DynamicLinkOption[] = [];
+  private selected: DynamicLinkOption | null = null;
   private disabled: boolean;
   private isOpen = false;
 
@@ -59,12 +60,12 @@ class SearchableSelect {
     this.setDisabled(this.disabled);
   }
 
-  setOptions(options: ExternalItemPickerOption[]): void {
+  setOptions(options: DynamicLinkOption[]): void {
     this.options = options;
     this.renderOptions();
   }
 
-  setSelected(option: ExternalItemPickerOption | null): void {
+  setSelected(option: DynamicLinkOption | null): void {
     this.selected = option;
     this.input.value = option?.label ?? '';
     this.renderOptions();
@@ -182,6 +183,11 @@ class SearchableSelect {
 
 const CLASS_PREFIX = 'external-item-picker';
 const DYNAMIC_LINK_SELECTOR = 'a[data-dynamic-link="true"]';
+const STATIC_PAGE_CATEGORY_ID = 'static-page';
+const STATIC_PAGE_OPTION: DynamicLinkOption = {
+  id: STATIC_PAGE_CATEGORY_ID,
+  label: 'Static page'
+};
 
 const defaultLabels = {
   categoryPlaceholder: 'Select category',
@@ -190,19 +196,23 @@ const defaultLabels = {
 };
 
 export class ExternalItemPickerTool {
-  private readonly dataProvider?: ExternalItemPickerDataProvider;
-  private readonly config: ExternalItemPickerConfig;
+  private readonly dataProvider?: DynamicLinkDataProvider;
+  private readonly config: DynamicLinkConfig;
   private readonly readOnly: boolean;
   private button?: HTMLButtonElement;
   private popover?: HTMLDivElement;
   private categorySelect?: SearchableSelect;
   private itemSelect?: SearchableSelect;
+  private itemField?: HTMLDivElement;
+  private pathnameField?: HTMLDivElement;
+  private pathnameInput?: HTMLInputElement;
+  private queryParamsList?: HTMLDivElement;
   private applyButton?: HTMLButtonElement;
   private unlinkButton?: HTMLButtonElement;
   private errorElement?: HTMLDivElement;
   private activeAnchor: HTMLAnchorElement | null = null;
   private selectedRange: Range | null = null;
-  private data: ExternalItemPickerData = {};
+  private data: DynamicLinkData = this.createEmptyData();
   private categoriesLoaded = false;
   private itemsLoadedForCategoryId?: string;
   private readonly handleDocumentMouseDown = (event: MouseEvent): void => {
@@ -254,7 +264,7 @@ export class ExternalItemPickerTool {
 
     this.selectedRange = range.cloneRange();
     this.activeAnchor = anchor;
-    this.data = anchor ? this.readDataFromAnchor(anchor) : {};
+    this.data = anchor ? this.readDataFromAnchor(anchor) : this.createEmptyData();
     this.openPopover(range);
   }
 
@@ -272,7 +282,7 @@ export class ExternalItemPickerTool {
     this.button?.classList.remove(`${CLASS_PREFIX}__toolbar-button--active`);
     this.activeAnchor = null;
     this.selectedRange = null;
-    this.data = {};
+    this.data = this.createEmptyData();
   }
 
   private openPopover(range: Range): void {
@@ -289,7 +299,9 @@ export class ExternalItemPickerTool {
     this.popover.addEventListener('click', (event) => event.stopPropagation());
 
     const categoryField = this.createField(labels.categoryPlaceholder);
-    const itemField = this.createField(labels.itemPlaceholder);
+    this.itemField = this.createField(labels.itemPlaceholder);
+    this.pathnameField = this.createPathnameField();
+    const queryParamsField = this.createQueryParamsField();
     const actions = document.createElement('div');
     actions.className = `${CLASS_PREFIX}__actions`;
 
@@ -344,20 +356,30 @@ export class ExternalItemPickerTool {
     }
 
     categoryField.append(this.categorySelect.element);
-    itemField.append(this.itemSelect.element);
+    this.itemField.append(this.itemSelect.element);
     actions.append(this.unlinkButton, this.applyButton);
-    this.popover.append(categoryField, itemField, this.errorElement, actions);
+    this.popover.append(categoryField, this.itemField, this.pathnameField, queryParamsField, this.errorElement, actions);
     document.body.append(this.popover);
     document.addEventListener('mousedown', this.handleDocumentMouseDown);
     this.positionPopover(range);
     this.syncApplyButton();
+    this.syncModeUi();
+    this.renderQueryParamRows();
     void this.loadCategories();
 
-    if (this.data.categoryId) {
+    if (this.data.categoryId && !this.isStaticPageSelected()) {
       void this.loadItemsForCurrentCategory();
     }
 
     this.categorySelect.focus();
+  }
+
+  private createEmptyData(): DynamicLinkData {
+    return {
+      categoryId: '',
+      params: {},
+      queryParams: []
+    };
   }
 
   private closePopover(): void {
@@ -366,6 +388,10 @@ export class ExternalItemPickerTool {
     this.popover = undefined;
     this.categorySelect = undefined;
     this.itemSelect = undefined;
+    this.itemField = undefined;
+    this.pathnameField = undefined;
+    this.pathnameInput = undefined;
+    this.queryParamsList = undefined;
     this.applyButton = undefined;
     this.unlinkButton = undefined;
     this.errorElement = undefined;
@@ -396,7 +422,19 @@ export class ExternalItemPickerTool {
   }
 
   private applyLink(): void {
-    if (!this.data.categoryId || !this.data.itemId) {
+    this.data.queryParams = this.getQueryParamsFromRows();
+
+    if (!this.data.categoryId) {
+      this.showError('Choose a category before applying the link.');
+      return;
+    }
+
+    if (this.isStaticPageSelected() && !this.isValidPathname(this.data.pathname ?? '')) {
+      this.showError('Pathname must start with "/".');
+      return;
+    }
+
+    if (!this.isStaticPageSelected() && !this.data.itemId) {
       this.showError('Choose a category and item before applying the link.');
       return;
     }
@@ -474,12 +512,15 @@ export class ExternalItemPickerTool {
     );
   }
 
-  private readDataFromAnchor(anchor: HTMLAnchorElement): ExternalItemPickerData {
+  private readDataFromAnchor(anchor: HTMLAnchorElement): DynamicLinkData {
     return {
       categoryId: anchor.dataset.dynamicLinkCategoryId ?? '',
       categoryLabel: anchor.dataset.dynamicLinkCategoryLabel ?? '',
       itemId: anchor.dataset.dynamicLinkItemId ?? '',
-      itemLabel: anchor.dataset.dynamicLinkItemLabel ?? ''
+      itemLabel: anchor.dataset.dynamicLinkItemLabel ?? '',
+      pathname: anchor.dataset.dynamicLinkPathname ?? '',
+      params: this.parseParams(anchor.dataset.dynamicLinkParams),
+      queryParams: this.parseQueryParams(anchor.dataset.dynamicLinkQueryParams)
     };
   }
 
@@ -488,11 +529,14 @@ export class ExternalItemPickerTool {
     anchor.dataset.dynamicLink = 'true';
     anchor.dataset.dynamicLinkCategoryId = this.data.categoryId ?? '';
     anchor.dataset.dynamicLinkCategoryLabel = this.data.categoryLabel ?? '';
-    anchor.dataset.dynamicLinkItemId = this.data.itemId ?? '';
-    anchor.dataset.dynamicLinkItemLabel = this.data.itemLabel ?? '';
+    anchor.dataset.dynamicLinkItemId = this.isStaticPageSelected() ? '' : this.data.itemId ?? '';
+    anchor.dataset.dynamicLinkItemLabel = this.isStaticPageSelected() ? '' : this.data.itemLabel ?? '';
+    anchor.dataset.dynamicLinkPathname = this.data.pathname ?? '';
+    anchor.dataset.dynamicLinkParams = JSON.stringify(this.isStaticPageSelected() ? {} : this.data.params ?? {});
+    anchor.dataset.dynamicLinkQueryParams = JSON.stringify(this.getQueryParamsFromRows());
   }
 
-  private resolveDataProvider(config: ExternalItemPickerConfig): ExternalItemPickerDataProvider | undefined {
+  private resolveDataProvider(config: DynamicLinkConfig): DynamicLinkDataProvider | undefined {
     if (config.dataProvider) {
       return config.dataProvider;
     }
@@ -516,13 +560,62 @@ export class ExternalItemPickerTool {
     return field;
   }
 
+  private createPathnameField(): HTMLDivElement {
+    const field = this.createField('Pathname');
+
+    this.pathnameInput = document.createElement('input');
+    this.pathnameInput.className = `${CLASS_PREFIX}__input`;
+    this.pathnameInput.type = 'text';
+    this.pathnameInput.placeholder = '/pathname';
+    this.pathnameInput.value = this.data.pathname ?? '';
+    this.pathnameInput.addEventListener('input', () => {
+      this.data.pathname = this.pathnameInput?.value ?? '';
+      this.syncApplyButton();
+    });
+
+    const helper = document.createElement('div');
+    helper.className = `${CLASS_PREFIX}__helper`;
+    helper.textContent = 'The pathname must be in the format /pathname.';
+
+    field.append(this.pathnameInput, helper);
+    return field;
+  }
+
+  private createQueryParamsField(): HTMLDivElement {
+    const field = document.createElement('div');
+    field.className = `${CLASS_PREFIX}__query`;
+
+    const header = document.createElement('div');
+    header.className = `${CLASS_PREFIX}__query-header`;
+
+    const label = document.createElement('div');
+    label.className = `${CLASS_PREFIX}__label`;
+    label.textContent = 'Query params';
+
+    const addButton = document.createElement('button');
+    addButton.type = 'button';
+    addButton.className = `${CLASS_PREFIX}__action`;
+    addButton.textContent = 'Add query param';
+    addButton.addEventListener('click', () => {
+      this.addQueryParamRow();
+    });
+
+    this.queryParamsList = document.createElement('div');
+    this.queryParamsList.className = `${CLASS_PREFIX}__query-list`;
+
+    header.append(label, addButton);
+    field.append(header, this.queryParamsList);
+    return field;
+  }
+
   private async loadCategories(): Promise<void> {
     if (this.categoriesLoaded || !this.categorySelect) {
       return;
     }
 
     if (!this.dataProvider) {
-      this.categorySelect.setOptions([]);
+      this.categorySelect.setOptions([STATIC_PAGE_OPTION]);
+      this.categoriesLoaded = true;
       return;
     }
 
@@ -531,9 +624,10 @@ export class ExternalItemPickerTool {
 
     try {
       const categories = await this.dataProvider.getCategories();
-      this.categorySelect.setOptions(categories);
+      this.categorySelect.setOptions(this.withStaticPageOption(categories));
       this.categoriesLoaded = true;
     } catch (error) {
+      this.categorySelect.setOptions([STATIC_PAGE_OPTION]);
       this.showError('Categories could not be loaded. Try again later.');
     } finally {
       this.categorySelect.setLoading(false);
@@ -541,7 +635,7 @@ export class ExternalItemPickerTool {
   }
 
   private async loadItemsForCurrentCategory(): Promise<void> {
-    if (!this.itemSelect || !this.data.categoryId) {
+    if (!this.itemSelect || !this.data.categoryId || this.isStaticPageSelected()) {
       return;
     }
 
@@ -568,7 +662,7 @@ export class ExternalItemPickerTool {
     }
   }
 
-  private handleCategoryChange(option: ExternalItemPickerOption | null): void {
+  private handleCategoryChange(option: DynamicLinkOption | null): void {
     const previousCategoryId = this.data.categoryId;
 
     this.data.categoryId = option?.id ?? '';
@@ -577,18 +671,26 @@ export class ExternalItemPickerTool {
     if (previousCategoryId !== this.data.categoryId) {
       this.data.itemId = '';
       this.data.itemLabel = '';
+      this.data.pathname = '';
+      this.data.params = {};
+      if (this.pathnameInput) {
+        this.pathnameInput.value = '';
+      }
       this.itemsLoadedForCategoryId = undefined;
       this.itemSelect?.clear();
       this.itemSelect?.setOptions([]);
-      this.itemSelect?.setDisabled(!this.data.categoryId);
+      this.itemSelect?.setDisabled(!this.data.categoryId || this.isStaticPageSelected());
     }
 
+    this.syncModeUi();
     this.syncApplyButton();
   }
 
-  private handleItemChange(option: ExternalItemPickerOption | null): void {
+  private handleItemChange(option: DynamicLinkOption | null): void {
     this.data.itemId = option?.id ?? '';
     this.data.itemLabel = option?.label ?? '';
+    this.data.pathname = option?.pathname ?? '';
+    this.data.params = option?.params ?? {};
     this.syncApplyButton();
   }
 
@@ -597,7 +699,156 @@ export class ExternalItemPickerTool {
       return;
     }
 
-    this.applyButton.disabled = !this.data.categoryId || !this.data.itemId;
+    this.applyButton.disabled =
+      !this.data.categoryId ||
+      (this.isStaticPageSelected() && !this.isValidPathname(this.data.pathname ?? '')) ||
+      (!this.isStaticPageSelected() && !this.data.itemId);
+  }
+
+  private syncModeUi(): void {
+    const isStaticPage = this.isStaticPageSelected();
+
+    if (this.itemField) {
+      this.itemField.hidden = isStaticPage;
+    }
+
+    if (this.pathnameField) {
+      this.pathnameField.hidden = !isStaticPage;
+    }
+
+    this.itemSelect?.setDisabled(!this.data.categoryId || isStaticPage);
+  }
+
+  private isStaticPageSelected(): boolean {
+    return this.data.categoryId === STATIC_PAGE_CATEGORY_ID;
+  }
+
+  private isValidPathname(pathname: string): boolean {
+    return pathname.startsWith('/');
+  }
+
+  private withStaticPageOption(options: DynamicLinkOption[]): DynamicLinkOption[] {
+    return [STATIC_PAGE_OPTION, ...options.filter((option) => option.id !== STATIC_PAGE_CATEGORY_ID)];
+  }
+
+  private parseQueryParams(value: string | undefined): DynamicLinkQueryParam[] {
+    if (!value) {
+      return [];
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      return parsed
+        .map((entry): DynamicLinkQueryParam | null => {
+          if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+            return null;
+          }
+
+          const record = entry as Record<string, unknown>;
+
+          return {
+            key: typeof record.key === 'string' ? record.key : '',
+            value: typeof record.value === 'string' ? record.value : ''
+          };
+        })
+        .filter((entry): entry is DynamicLinkQueryParam => entry !== null);
+    } catch (error) {
+      return [];
+    }
+  }
+
+  private parseParams(value: string | undefined): Record<string, string> {
+    if (!value) {
+      return {};
+    }
+
+    try {
+      const parsed = JSON.parse(value) as unknown;
+
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+        return {};
+      }
+
+      return Object.entries(parsed as Record<string, unknown>).reduce<Record<string, string>>(
+        (params, [key, entryValue]) => {
+          if (typeof entryValue === 'string' || typeof entryValue === 'number' || typeof entryValue === 'boolean') {
+            params[key] = String(entryValue);
+          }
+
+          return params;
+        },
+        {}
+      );
+    } catch (error) {
+      return {};
+    }
+  }
+
+  private renderQueryParamRows(): void {
+    if (!this.queryParamsList) {
+      return;
+    }
+
+    this.queryParamsList.textContent = '';
+
+    for (const queryParam of this.data.queryParams ?? []) {
+      this.addQueryParamRow(queryParam);
+    }
+  }
+
+  private addQueryParamRow(queryParam: DynamicLinkQueryParam = { key: '', value: '' }): void {
+    if (!this.queryParamsList) {
+      return;
+    }
+
+    const row = document.createElement('div');
+    row.className = `${CLASS_PREFIX}__query-row`;
+
+    const keyInput = document.createElement('input');
+    keyInput.className = `${CLASS_PREFIX}__input`;
+    keyInput.type = 'text';
+    keyInput.placeholder = 'key';
+    keyInput.value = queryParam.key;
+    keyInput.dataset.queryParamKey = 'true';
+
+    const valueInput = document.createElement('input');
+    valueInput.className = `${CLASS_PREFIX}__input`;
+    valueInput.type = 'text';
+    valueInput.placeholder = 'value';
+    valueInput.value = queryParam.value;
+    valueInput.dataset.queryParamValue = 'true';
+
+    const removeButton = document.createElement('button');
+    removeButton.type = 'button';
+    removeButton.className = `${CLASS_PREFIX}__query-remove`;
+    removeButton.textContent = 'Remove';
+    removeButton.addEventListener('click', () => {
+      row.remove();
+    });
+
+    row.append(keyInput, valueInput, removeButton);
+    this.queryParamsList.append(row);
+    keyInput.focus();
+  }
+
+  private getQueryParamsFromRows(): DynamicLinkQueryParam[] {
+    if (!this.queryParamsList) {
+      return this.data.queryParams ?? [];
+    }
+
+    return Array.from(this.queryParamsList.querySelectorAll<HTMLDivElement>(`.${CLASS_PREFIX}__query-row`))
+      .map((row): DynamicLinkQueryParam => {
+        const key = row.querySelector<HTMLInputElement>('[data-query-param-key="true"]')?.value.trim() ?? '';
+        const value = row.querySelector<HTMLInputElement>('[data-query-param-value="true"]')?.value.trim() ?? '';
+
+        return { key, value };
+      })
+      .filter((queryParam) => queryParam.key.length > 0);
   }
 
   private showError(message: string): void {

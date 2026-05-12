@@ -2,6 +2,11 @@ export { DynamicLinkTool, ExternalItemPickerTool, default } from './tool/Externa
 export { createFetchDataProvider } from './services/createFetchDataProvider';
 export { normalizeOptions } from './services/normalizeOptions';
 export type {
+  DynamicLinkConfig,
+  DynamicLinkData,
+  DynamicLinkDataProvider,
+  DynamicLinkOption,
+  DynamicLinkQueryParam,
   ExternalItemPickerConfig,
   ExternalItemPickerData,
   ExternalItemPickerDataProvider,
